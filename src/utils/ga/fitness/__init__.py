@@ -15,14 +15,12 @@ from src.utils.ga.loss import GALossType, load_ga_loss
 def fit_embeddings_pca(
     embeddings: torch.Tensor,
     device: torch.device,
-    num_pca_components: int = 64,
-    seed: int = 42,
+    num_pca_components: int = 64
 ) -> Tuple[torch.Tensor, Optional[GPUPCA]]:
     if num_pca_components < embeddings.shape[1]:
         pca_transform = GPUPCA(
             num_components=num_pca_components,
-            device=device,
-            seed=seed
+            device=device
         ).fit(embeddings)
 
         logging.info(f"fit pca model using {num_pca_components} components")
@@ -47,7 +45,6 @@ def build_fitness_function(
     pruning_function: Callable,
     loss_types: List[GALossType],
     num_pca_components: int = 64,
-    seed: int = 42,
     estimate_pruning_weights: bool = True
 ) -> FitnessFunction:
     # Load the loss functions
@@ -72,8 +69,7 @@ def build_fitness_function(
     compressed_teacher_embeddings, pca_transform = fit_embeddings_pca(
         embeddings=teacher_embeddings,
         device=device,
-        num_pca_components=num_pca_components,
-        seed=seed
+        num_pca_components=num_pca_components
     )
 
     def fitness(solution):

@@ -258,8 +258,7 @@ def main(args: argparse.Namespace):
         device=device,
         pruning_function=pruning_function,
         loss_types=args.ga_loss_types,
-        num_pca_components=args.ga_num_pca_components,
-        seed=args.seed
+        num_pca_components=args.ga_num_pca_components
     )
 
     if args.ga_init_covariance_matrix_path is not None:
