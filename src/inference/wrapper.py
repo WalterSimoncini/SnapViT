@@ -135,12 +135,14 @@ class ElasticViT(nn.Module):
         # Compute per-block keep counts using global ranking
         mlp_keep_counts = self._compute_global_keep_counts(
             scores=self.scores.mlp_scores,
-            pruning_ratio=mlp_pruning_ratio
+            pruning_ratio=mlp_pruning_ratio,
+            min_keep_ratio=self.scores.min_hidden_dim_ratio
         )
 
         head_keep_counts = self._compute_global_keep_counts(
             scores=self.scores.head_scores,
-            pruning_ratio=head_pruning_ratio
+            pruning_ratio=head_pruning_ratio,
+            min_keep_ratio=self.scores.min_head_ratio
         )
 
         # Apply pruning (truncation since we're already permuted)
@@ -160,7 +162,8 @@ class ElasticViT(nn.Module):
     def _compute_global_keep_counts(
         self,
         scores: torch.Tensor,
-        pruning_ratio: float
+        pruning_ratio: float,
+        min_keep_ratio: float = 0.0
     ) -> List[int]:
         """
             Compute per-block keep counts using the given
@@ -174,6 +177,7 @@ class ElasticViT(nn.Module):
             Args:
                 scores: importance scores of shape [num_blocks, num_structures_per_block].
                 pruning_ratio: fraction of units to remove in [0.0 to 1.0).
+                min_keep_ratio: minimum fraction of structures to keep per block.
 
             Returns:
                 List of keep counts per block.
@@ -182,6 +186,9 @@ class ElasticViT(nn.Module):
             raise ValueError(f"pruning ratio must be in [0, 1), got {pruning_ratio}")
 
         num_blocks, num_structures_per_block = scores.shape
+
+        # Compute minimum structures to keep per block
+        min_keep_per_block = int(num_structures_per_block * min_keep_ratio)
 
         # Flatten the scores and decide how many structures to prune.
         flat_scores = scores.flatten()
@@ -198,9 +205,11 @@ class ElasticViT(nn.Module):
         sorted_scores, _ = flat_scores.sort()
         threshold = sorted_scores[num_target_structures - 1]
 
-        # Return the number of structures to keep per block.
+        # Compute the keep counts, clamping them to adhere
+        # to the minimum keep ratio constraint.
         return [
-            int((scores[i] > threshold).sum().item()) for i in range(scores.shape[0])
+            max(int((scores[i] > threshold).sum().item()), min_keep_per_block)
+            for i in range(scores.shape[0])
         ]
 
     def _prune_block_mlp(self, block: nn.Module, keep_count: int) -> None:

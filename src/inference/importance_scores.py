@@ -26,6 +26,11 @@ class ElasticImportanceScores:
     num_heads: int
     head_dim: int
 
+    # The minimum remaining ratio constraints for the MLP
+    # hidden dimension and the attention heads.
+    min_hidden_dim_ratio: float = 0.05
+    min_head_ratio: float = 0.2
+
     # Optional metadata (GA config, dataset used, etc.)
     metadata: Optional[Dict] = field(default_factory=dict)
 

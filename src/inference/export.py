@@ -59,5 +59,7 @@ def export_importance_scores(
         num_heads=prunable_model.default_num_heads,
         embed_dim=prunable_model.embeddings_dim,
         head_dim=prunable_model.head_dim,
+        min_hidden_dim_ratio=prunable_model.min_hidden_dim_ratio,
+        min_head_ratio=prunable_model.min_head_ratio,
         metadata=metadata if metadata is not None else {}
     )
