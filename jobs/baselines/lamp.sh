@@ -49,8 +49,8 @@ for MODEL in ${MODEL_VALUES[@]}; do
             --pruning-ratio-heads $HEAD_PRUNING_RATIO \
             --num-estimation-epochs $ESTIMATION_EPOCHS \
             --pruning-strategy $PRUNING_STRATEGY \
-            --min-hidden-dim-ratio $MIN_HIDDEN_DIM_RATIO \
-            --min-head-ratio $MIN_HEAD_RATIO \
+            --min-hidden-dim-keep-ratio $MIN_HIDDEN_DIM_RATIO \
+            --min-head-keep-ratio $MIN_HEAD_RATIO \
             --output-dir $OUTPUT_DIR \
             --save-pruned-model \
             --save-features

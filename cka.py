@@ -37,8 +37,8 @@ def main(args: argparse.Namespace):
         device=device,
         # These arguments are not important, as they're not used for the CKA computation
         estimation_epochs=1,
-        min_hidden_dim_ratio=0.0,
-        min_head_ratio=0.0
+        min_hidden_dim_keep_ratio=0.0,
+        min_head_keep_ratio=0.0
     )
 
     logging.info(f"computing CKA matrix using the {args.dataset_split} split of the {args.dataset} with {args.num_samples} samples")

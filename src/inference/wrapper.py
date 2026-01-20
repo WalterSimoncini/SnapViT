@@ -136,13 +136,13 @@ class ElasticViT(nn.Module):
         mlp_keep_counts = self._compute_global_keep_counts(
             scores=self.scores.mlp_scores,
             pruning_ratio=mlp_pruning_ratio,
-            min_keep_ratio=self.scores.min_hidden_dim_ratio
+            min_keep_ratio=self.scores.min_hidden_dim_keep_ratio
         )
 
         head_keep_counts = self._compute_global_keep_counts(
             scores=self.scores.head_scores,
             pruning_ratio=head_pruning_ratio,
-            min_keep_ratio=self.scores.min_head_ratio
+            min_keep_ratio=self.scores.min_head_keep_ratio
         )
 
         # Apply pruning (truncation since we're already permuted)

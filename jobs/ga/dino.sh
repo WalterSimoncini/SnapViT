@@ -54,8 +54,8 @@ for MODEL in ${MODEL_VALUES[@]}; do
         --model-type $MODEL \
         --num-estimation-epochs $ESTIMATION_EPOCHS \
         --pruning-strategy $PRUNING_STRATEGY \
-        --min-hidden-dim-ratio $MIN_HIDDEN_DIM_RATIO \
-        --min-head-ratio $MIN_HEAD_RATIO \
+        --min-hidden-dim-keep-ratio $MIN_HIDDEN_DIM_RATIO \
+        --min-head-keep-ratio $MIN_HEAD_RATIO \
         --ga-max-eval-samples $GA_MAX_EVAL_SAMPLES \
         --ga-optimization-dataset $GA_OPTIMIZATION_DATASET \
         --ga-optimization-dataset-split $GA_OPTIMIZATION_DATASET_SPLIT \
@@ -72,5 +72,6 @@ for MODEL in ${MODEL_VALUES[@]}; do
         --output-dir $OUTPUT_DIR \
         --save-pruned-model \
         --ga-save-weights \
-        --save-features
+        --save-features \
+        --save-importance-scores
 done

@@ -23,8 +23,8 @@ def load_prunable_model(
     backbone_transform: nn.Module,
     device: torch.device,
     estimation_epochs: int = 1,
-    min_hidden_dim_ratio: float = 0.2,
-    min_head_ratio: float = 0.2
+    min_hidden_dim_keep_ratio: float = 0.2,
+    min_head_keep_ratio: float = 0.2
 ) -> Tuple[PrunableModel, nn.Module]:
     model_class = {
         PrunableModelType.DINO: DINOPrunableModel,
@@ -54,6 +54,6 @@ def load_prunable_model(
         model=backbone,
         device=device,
         estimation_epochs=estimation_epochs,
-        min_hidden_dim_ratio=min_hidden_dim_ratio,
-        min_head_ratio=min_head_ratio
+        min_hidden_dim_keep_ratio=min_hidden_dim_keep_ratio,
+        min_head_keep_ratio=min_head_keep_ratio
     ), transform

@@ -17,15 +17,15 @@ class DINOPrunableModel(PrunableModel):
         device: torch.device,
         estimation_epochs: int = 1,
         skip_same_view: bool = True,
-        min_hidden_dim_ratio: float = 0.2,
-        min_head_ratio: float = 0.2,
+        min_hidden_dim_keep_ratio: float = 0.2,
+        min_head_keep_ratio: float = 0.2,
         **kwargs
     ):
         super().__init__(
             model=model,
             device=device,
-            min_hidden_dim_ratio=min_hidden_dim_ratio,
-            min_head_ratio=min_head_ratio
+            min_hidden_dim_keep_ratio=min_hidden_dim_keep_ratio,
+            min_head_keep_ratio=min_head_keep_ratio
         )
 
         self.skip_same_view = skip_same_view

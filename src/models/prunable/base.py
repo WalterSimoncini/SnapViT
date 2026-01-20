@@ -14,8 +14,8 @@ class PrunableModel(nn.Module):
         self,
         model: nn.Module,
         device: torch.device,
-        min_hidden_dim_ratio: float = 0.2,
-        min_head_ratio: float = 0.2,
+        min_hidden_dim_keep_ratio: float = 0.2,
+        min_head_keep_ratio: float = 0.2,
         **kwargs
     ):
         super().__init__()
@@ -24,10 +24,10 @@ class PrunableModel(nn.Module):
         self.device = device
         self.head_dim = model.embed_dim // model.blocks[0].attn.num_heads
         self.default_num_heads = model.blocks[0].attn.num_heads
-        self.min_num_heads = int(self.default_num_heads * min_head_ratio)
-        self.min_head_ratio = min_head_ratio
+        self.min_head_keep_count = int(self.default_num_heads * min_head_keep_ratio)
+        self.min_head_keep_ratio = min_head_keep_ratio
         self.num_blocks = len(self.model.blocks)
-        self.min_hidden_dim_ratio = min_hidden_dim_ratio
+        self.min_hidden_dim_keep_ratio = min_hidden_dim_keep_ratio
 
         if hasattr(self.model.blocks[0].mlp, MLPLayerType.FC1.value):
             self.target_input_mlp_layer = MLPLayerType.FC1
@@ -40,7 +40,7 @@ class PrunableModel(nn.Module):
 
         self.embeddings_dim = getattr(self.model.blocks[0].mlp, self.target_output_mlp_layer.value).out_features
         self.default_mlp_hidden_dim = getattr(self.model.blocks[0].mlp, self.target_input_mlp_layer.value).out_features
-        self.min_hidden_dim = int(self.default_mlp_hidden_dim * min_hidden_dim_ratio)
+        self.min_hidden_dim_keep_count = int(self.default_mlp_hidden_dim * min_hidden_dim_keep_ratio)
 
     @property
     def blocks(self) -> List[nn.Module]:
@@ -137,13 +137,13 @@ class PrunableModel(nn.Module):
                 # we use for pruning, select the top-x% of the weights by magnitude,
                 # and set their weight to a large value, so that they are not pruned.
                 sorted_indices = pruning_weights[i].argsort(descending=True)
-                sorted_indices = sorted_indices[:self.min_hidden_dim]
+                sorted_indices = sorted_indices[:self.min_hidden_dim_keep_count]
 
                 pruning_weights[i][sorted_indices] = torch.finfo(pruning_weights[i].dtype).max
 
                 # Do the same for the head pruning weights
                 sorted_head_indices = head_pruning_weights[i].argsort(descending=True)
-                sorted_head_indices = sorted_head_indices[:self.min_num_heads]
+                sorted_head_indices = sorted_head_indices[:self.min_head_keep_count]
 
                 head_pruning_weights[i][sorted_head_indices] = torch.finfo(head_pruning_weights[i].dtype).max
 

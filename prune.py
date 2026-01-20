@@ -101,8 +101,8 @@ def main(args: argparse.Namespace):
     logging.info(f"the mlp hidden dimensionality is {hidden_dim}")
     logging.info(f"the model has {num_heads} heads")
 
-    logging.info(f"preserving at least {args.min_hidden_dim_ratio * 100:.2f}% of the mlp hidden dimension in each block")
-    logging.info(f"preserving at least {args.min_head_ratio * 100:.2f}% of the heads in each block's attention layer")
+    logging.info(f"preserving at least {args.min_hidden_dim_keep_ratio * 100:.2f}% of the mlp hidden dimension in each block")
+    logging.info(f"preserving at least {args.min_head_keep_ratio * 100:.2f}% of the heads in each block's attention layer")
 
     for i, (mlp_ratio, head_ratio) in enumerate(zip(args.ga_mlp_pruning_ratios, args.ga_heads_pruning_ratios)):
         num_pruned_params = int(num_mlp_params * mlp_ratio + num_attn_params * head_ratio)
@@ -117,8 +117,8 @@ def main(args: argparse.Namespace):
         backbone_transform=transform,
         device=device,
         estimation_epochs=args.num_estimation_epochs,
-        min_hidden_dim_ratio=args.min_hidden_dim_ratio,
-        min_head_ratio=args.min_head_ratio
+        min_hidden_dim_keep_ratio=args.min_hidden_dim_keep_ratio,
+        min_head_keep_ratio=args.min_head_keep_ratio
     )
 
     # Load the evaluation datasets
@@ -312,8 +312,8 @@ def main(args: argparse.Namespace):
                 "pruning_dataset_split": args.pruning_dataset_split.value,
                 "max_samples": args.max_samples,
                 "num_estimation_epochs": args.num_estimation_epochs,
-                "min_hidden_dim_ratio": args.min_hidden_dim_ratio,
-                "min_head_ratio": args.min_head_ratio,
+                "min_hidden_dim_keep_ratio": args.min_hidden_dim_keep_ratio,
+                "min_head_keep_ratio": args.min_head_keep_ratio,
                 "ga_optimization_dataset": args.ga_optimization_dataset.value,
                 "ga_optimization_dataset_split": args.ga_optimization_dataset_split.value,
                 "ga_max_eval_samples": args.ga_max_eval_samples,
@@ -483,8 +483,8 @@ if __name__ == "__main__":
     parser.add_argument("--pruning-strategy", type=PrunableModelType, choices=list(PrunableModelType), default=PrunableModelType.CROSS_ENTROPY, help="The type of pruning strategy to use")
 
     parser.add_argument("--num-estimation-epochs", type=int, default=1, help="The number of epochs to use for estimating the gradients")
-    parser.add_argument("--min-hidden-dim-ratio", type=float, default=0.2, help="The minimum ratio of hidden neurons to keep in a block's mlp")
-    parser.add_argument("--min-head-ratio", type=float, default=0.2, help="The minimum ratio of heads to keep in a block's attention layer")
+    parser.add_argument("--min-hidden-dim-keep-ratio", type=float, default=0.2, help="The minimum ratio of hidden neurons to keep in a block's mlp")
+    parser.add_argument("--min-head-keep-ratio", type=float, default=0.2, help="The minimum ratio of heads to keep in a block's attention layer")
 
     # Speed measurements
     parser.add_argument("--speed-measurements-steps", type=int, default=500, help="The number of steps to run for measuring the model speed")
