@@ -190,26 +190,30 @@ class ElasticViT(nn.Module):
         # Compute minimum structures to keep per block
         min_keep_per_block = int(num_structures_per_block * min_keep_ratio)
 
-        # Flatten the scores and decide how many structures to prune.
-        flat_scores = scores.flatten()
+        num_total_structures = num_blocks * num_structures_per_block
+        num_target_to_prune = int(num_total_structures * pruning_ratio)
 
-        num_total_structures = flat_scores.numel()
-        num_target_structures = int(num_total_structures * pruning_ratio)
-
-        if num_target_structures == 0:
+        if num_target_to_prune == 0:
             # Nothing to do here.
             return [num_structures_per_block] * num_blocks
 
-        # Sort the scores in ascending order, and find the threshold as the
-        # value at the index of the number of structures to prune, minus one.
-        sorted_scores, _ = flat_scores.sort()
-        threshold = sorted_scores[num_target_structures - 1]
+        # Clone and sort the scores to match the permuted model order.
+        scores = scores.clone().sort(dim=1, descending=True).values
 
-        # Compute the keep counts, clamping them to adhere
-        # to the minimum keep ratio constraint.
+        # Protect the top min_keep_per_block structures per block by
+        # setting their scores to the maximum value supported by the dtype.
+        if min_keep_per_block > 0:
+            for i in range(num_blocks):
+                scores[i, :min_keep_per_block] = torch.finfo(scores.dtype).max
+
+        # Flatten the scores and compute the threshold. To do so, sort the
+        # scores in ascending order and find the threshold at the pruned
+        # units count position.
+        sorted_scores, _ = scores.flatten().sort()
+        threshold = sorted_scores[num_target_to_prune - 1]
+
         return [
-            max(int((scores[i] > threshold).sum().item()), min_keep_per_block)
-            for i in range(scores.shape[0])
+            int((scores[i] > threshold).sum().item()) for i in range(num_blocks)
         ]
 
     def _prune_block_mlp(self, block: nn.Module, keep_count: int) -> None:
