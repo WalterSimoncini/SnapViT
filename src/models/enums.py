@@ -1,7 +1,7 @@
 from enum import Enum
 
 
-class ModelType(Enum):
+class ModelType(str, Enum):
     DEIT_VIT_B_16 = "deit-vit-b-16"
 
     DEIT_3_VIT_H_14 = "deit-3-vit-h-14"
@@ -23,7 +23,7 @@ class ModelType(Enum):
     SIGLIP2_VIT_G_16 = "siglip2-vit-g16"
 
 
-class PrunableModelType(Enum):
+class PrunableModelType(str, Enum):
     DINO = "dino"
     CROSS_ENTROPY = "cross-entropy"
     SNIP_MAGNITUDE = "snip-magnitude"
@@ -34,7 +34,12 @@ class PrunableModelType(Enum):
     SPARSE_GPT_DINO = "sparse-gpt-dino"
 
 
-class MLPLayerType(Enum):
+class MLPArchitecture(str, Enum):
+    STANDARD = "standard"
+    SWIGLU = "swiglu"
+
+
+class MLPLayerType(str, Enum):
     # Standard MLP
     FC1 = "fc1"
     FC2 = "fc2"

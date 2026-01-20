@@ -1,13 +1,13 @@
 from enum import Enum
 
 
-class DatasetSplit(Enum):
+class DatasetSplit(str, Enum):
     TRAIN = "train"
     VALID = "valid"
     TEST = "test"
 
 
-class DatasetType(Enum):
+class DatasetType(str, Enum):
     IN1K = "imagenet-1k"
     DIFFUSION_DB_LARGE_FIRST_10K = "diffusiondb-large-first-10k"
     SHADERS_21K = "shaders-21k"

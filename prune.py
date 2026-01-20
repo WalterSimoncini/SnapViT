@@ -13,12 +13,13 @@ from torch.utils.data import DataLoader
 
 from src.utils.ga.loss import GALossType
 from src.datasets.fast import FastDataset
+from src.models.enums import MLPLayerType
 from src.utils.models import deepcopy_model
 from src.models import load_model, ModelType
 from src.models.prunable import PrunableModel
 from src.models.enums import PrunableModelType
 from src.utils.eval import eval_model_datasets
-from src.models.enums import MLPLayerType
+from src.inference import export_importance_scores
 from src.models.prunable import load_prunable_model
 from src.utils.performance import estimate_model_flops
 from src.utils.ga.fitness import build_fitness_function
@@ -295,6 +296,44 @@ def main(args: argparse.Namespace):
     # Take the absolute value of the solution as some entries might be negative
     block_weights = torch.tensor(block_weights).abs()
 
+    # Export importance scores as needed
+    if args.save_importance_scores:
+        importance_scores_path = os.path.join(output_dir, "importance-scores.pt")
+
+        logging.info(f"exporting the importance scores to {importance_scores_path}...")
+
+        importance_scores = export_importance_scores(
+            prunable_model=model,
+            block_weights=block_weights,
+            model_type=args.model_type,
+            metadata={
+                "seed": args.seed,
+                "pruning_strategy": args.pruning_strategy.value,
+                "pruning_dataset": args.pruning_dataset.value,
+                "pruning_dataset_split": args.pruning_dataset_split.value,
+                "max_samples": args.max_samples,
+                "num_estimation_epochs": args.num_estimation_epochs,
+                "min_hidden_dim_ratio": args.min_hidden_dim_ratio,
+                "min_head_ratio": args.min_head_ratio,
+                "ga_optimization_dataset": args.ga_optimization_dataset.value,
+                "ga_optimization_dataset_split": args.ga_optimization_dataset_split.value,
+                "ga_max_eval_samples": args.ga_max_eval_samples,
+                "ga_optimizer": args.ga_optimizer.value,
+                "ga_max_function_evaluations": args.ga_max_function_evaluations,
+                "ga_num_pca_components": args.ga_num_pca_components,
+                "ga_loss_types": [t.value for t in args.ga_loss_types],
+                "ga_xnes_num_individuals": args.ga_xnes_num_individuals,
+                "ga_init_start_value": args.ga_init_start_value,
+                "ga_init_end_value": args.ga_init_end_value,
+                "ga_mlp_pruning_ratios": args.ga_mlp_pruning_ratios,
+                "ga_heads_pruning_ratios": args.ga_heads_pruning_ratios,
+            }
+        )
+
+        importance_scores.save(importance_scores_path)
+
+        logging.info(f"importance scores saved to {importance_scores_path}")
+
     # Save the weights computed by the genetic algorithm to disk as needed
     if args.ga_save_weights:
         # Compute the base weights
@@ -460,6 +499,9 @@ if __name__ == "__main__":
     parser.add_argument("--save-pruned-model", action=argparse.BooleanOptionalAction, default=False, help="Whether to save the pruned model")
     parser.add_argument("--output-dir", type=str, required=True, help="Where to save checkpoints, metrics and logs")
     parser.add_argument("--save-features", action=argparse.BooleanOptionalAction, default=False, help="Whether to save the features of the pruned model")
+
+    # Importance scores
+    parser.add_argument("--save-importance-scores", action=argparse.BooleanOptionalAction, default=False, help="Whether to save importance scores for elastic inference")
 
     # Genetic algorithm optimization
     parser.add_argument("--ga-max-eval-samples", type=int, default=512, help="The maximum number of samples for evaluating the fitness of the genetic algorithm solutions")

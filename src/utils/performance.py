@@ -7,6 +7,7 @@ from tqdm import tqdm
 from typing import Union
 
 from src.models.enums import MLPLayerType
+from src.inference.wrapper import ElasticViT
 from src.models.prunable import PrunableModel
 from src.utils.models import model_image_size
 
@@ -54,7 +55,7 @@ def estimate_model_flops(model: Union[nn.Module, PrunableModel]) -> int:
         Which is mostly based on Training Compute-Optimal Large Language
         Models by Hoffmann et al. 
     """
-    if isinstance(model, PrunableModel):
+    if isinstance(model, PrunableModel) or isinstance(model, ElasticViT):
         model = model.model
 
     patch_size = model_patch_size(model=model)
@@ -109,7 +110,7 @@ def model_patch_size(model: Union[nn.Module, PrunableModel]) -> int:
     """
         Get the patch size for the given model.
     """
-    if isinstance(model, PrunableModel):
+    if isinstance(model, PrunableModel) or isinstance(model, ElasticViT):
         model = model.model
 
     if hasattr(model, "patch_size"):

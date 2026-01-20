@@ -1,6 +1,6 @@
 from enum import Enum
 
 
-class GALossType(Enum):
+class GALossType(str, Enum):
     MSE = "mse"
     COSINE_SIMILARITY = "cosine-similarity"
