@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from typing import Optional, List
+from typing import List, Callable
 
 from src.models.enums import MLPArchitecture
 from src.inference.importance_scores import ElasticImportanceScores
@@ -15,30 +15,38 @@ class ElasticViT(nn.Module):
               and pruning to avoid misaligned gradients.
 
         Usage:
-            elastic = ElasticViT(model, scores)
+            elastic = ElasticViT(
+                model_factory=lambda: load_model(...),
+                scores=scores,
+                device=torch.device("cuda")
+            )
+
             elastic.prune(mlp_pruning_ratio=0.35, head_pruning_ratio=0.2)
 
             output = elastic(images)
     """
-    def __init__(self, model: nn.Module, scores: ElasticImportanceScores):
+    def __init__(
+        self,
+        model_factory: Callable[[], nn.Module],
+        scores: ElasticImportanceScores,
+        device: torch.device
+    ):
         """
             Initialize the elastic ViT wrapper by automatically reordering
             neurons/heads by importance in descending order.
 
             Args:
-                model:  the base ViT model to wrap (modified in-place).
+                model_factory: callable that returns a fresh model instance.
                 scores: the pre-computed importance scores to permute.
+                device: target device for the model.
         """
         super().__init__()
 
-        self.model = model
+        self.model_factory = model_factory
         self.scores = scores
+        self.device = device
 
-        # Current pruning state
-        self._current_mlp_keep_counts: Optional[List[int]] = None
-        self._current_head_keep_counts: Optional[List[int]] = None
-
-        self._permute()
+        self.reset()
 
     def _permute(self) -> None:
         """Reorder neurons and heads by importance in descending order."""
@@ -114,24 +122,47 @@ class ElasticViT(nn.Module):
                 self.scores.head_dim
             )[:, indices, :].reshape(-1)
 
+    def _is_pruned(self) -> bool:
+        """Returns True if the model has been pruned."""
+        return (
+            self._current_mlp_keep_counts is not None or
+            self._current_head_keep_counts is not None
+        )
+
+    def reset(self) -> "ElasticViT":
+        """
+            Reset to an unpruned state by re-instantiating the model.
+
+            Returns:
+                self for chaining.
+        """
+        self.model = self.model_factory().to(self.device)
+
+        # Permute the units by importance, so that least
+        # important units are at the tail of weight matrices.
+        self._permute()
+
+        # Clear the pruning state
+        self._current_mlp_keep_counts = None
+        self._current_head_keep_counts = None
+
+        return self
+
     def prune(
         self,
         mlp_pruning_ratio: float = 0.0,
         head_pruning_ratio: float = 0.0
     ) -> "ElasticViT":
         """
-        Prune the model to target sparsity using global ranking.
+            Prune the model to target sparsity using global ranking.
 
-        Args:
-            mlp_pruning_ratio: Fraction of MLP neurons to remove (0.0 to 1.0).
-            head_pruning_ratio: Fraction of attention heads to remove (0.0 to 1.0).
+            Args:
+                mlp_pruning_ratio: Fraction of MLP neurons to remove (0.0 to 1.0).
+                head_pruning_ratio: Fraction of attention heads to remove (0.0 to 1.0).
 
-        Returns:
-            self
+            Returns:
+                self
         """
-        # Zero out any gradients that would become misaligned after pruning.
-        self.model.zero_grad()
-
         # Compute per-block keep counts using global ranking
         mlp_keep_counts = self._compute_global_keep_counts(
             scores=self.scores.mlp_scores,
@@ -144,6 +175,22 @@ class ElasticViT(nn.Module):
             pruning_ratio=head_pruning_ratio,
             min_keep_ratio=self.scores.min_head_keep_ratio
         )
+
+        # Check whether any of the new keep counts would exceed
+        # the current counts, and if so, reset the model to an
+        # unpruned state before pruning.
+        if self._is_pruned():
+            needs_reset = any(
+                new > cur for new, cur in zip(mlp_keep_counts, self._current_mlp_keep_counts)
+            ) or any(
+                new > cur for new, cur in zip(head_keep_counts, self._current_head_keep_counts)
+            )
+
+            if needs_reset:
+                self.reset()
+
+        # Zero out any gradients that would become misaligned after pruning.
+        self.model.zero_grad()
 
         # Apply pruning (truncation since we're already permuted)
         for i in range(self.scores.num_blocks):
@@ -236,13 +283,13 @@ class ElasticViT(nn.Module):
         """Truncate the attention weights to keep the top-k heads."""
         block.attn.proj.weight.data = block.attn.proj.weight.data.reshape(
             self.scores.embed_dim,
-            self.scores.num_heads,
+            block.attn.num_heads,
             self.scores.head_dim
         )[:, :keep_count, :].reshape(self.scores.embed_dim, -1)
 
         block.attn.qkv.weight.data = block.attn.qkv.weight.data.view(
             3,
-            self.scores.num_heads,
+            block.attn.num_heads,
             self.scores.head_dim,
             self.scores.embed_dim
         )[:, :keep_count, :, :].reshape(-1, self.scores.embed_dim)
@@ -255,7 +302,7 @@ class ElasticViT(nn.Module):
         for key in ["q_bias", "k_bias", "v_bias"]:
             if hasattr(block.attn, key) and getattr(block.attn, key) is not None:
                 getattr(block.attn, key).data = getattr(block.attn, key).data.view(
-                    self.scores.num_heads,
+                    block.attn.num_heads,
                     self.scores.head_dim
                 )[:keep_count, :].reshape(-1)
 
@@ -267,7 +314,7 @@ class ElasticViT(nn.Module):
         if hasattr(block.attn.qkv, bias_key) and getattr(block.attn.qkv, bias_key) is not None:
             getattr(block.attn.qkv, bias_key).data = getattr(block.attn.qkv, bias_key).data.view(
                 3,
-                self.scores.num_heads,
+                block.attn.num_heads,
                 self.scores.head_dim
             )[:, :keep_count, :].reshape(-1)
 

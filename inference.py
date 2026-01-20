@@ -19,13 +19,20 @@ def main(args: argparse.Namespace):
 
     seed_everything(args.seed)
 
-    logging.info(f"loading model of type {args.model_type}")
+    logging.info(f"creating model factory and transform for {args.model_type}")
 
-    model, transform = load_model(
+    model_factory = lambda: load_model(
         type_=args.model_type,
         cache_dir=args.cache_dir,
         device=device
-    )
+    )[0]
+
+    transform = load_model(
+        type_=args.model_type,
+        cache_dir=args.cache_dir,
+        device=device,
+        transform_only=True
+    )[1]
 
     logging.info(f"loading importance scores from {args.importance_scores_path}")
 
@@ -46,7 +53,11 @@ def main(args: argparse.Namespace):
 
     # Initialize the elastic ViT wrapper, which also
     # permutes network structures by importance.
-    elastic = ElasticViT(model, scores)
+    elastic = ElasticViT(
+        model_factory=model_factory,
+        scores=scores,
+        device=device
+    )
 
     # Prune to target sparsity
     logging.info(f"pruning to MLP sparsity {args.mlp_pruning_ratio}, head sparsity {args.head_pruning_ratio}")
