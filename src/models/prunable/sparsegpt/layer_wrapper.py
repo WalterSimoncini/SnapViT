@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from typing import Optional
+from src.models.enums import SparseGPTCorrectionDirection
 
 
 class SparseGPTLayerWrapper(nn.Module):
@@ -44,9 +45,30 @@ class SparseGPTLayerWrapper(nn.Module):
 
         self.hessian += inputs.matmul(inputs.t())
 
-    def prune(self, maximum_block_size: int = 128):
+    def prune(
+        self,
+        maximum_block_size: int = 128,
+        direction: SparseGPTCorrectionDirection = SparseGPTCorrectionDirection.LEFT_TO_RIGHT
+    ):
+        """
+            Prune weights and apply correction using the SparseGPT algorithm.
+
+            Args:
+                maximum_block_size: Maximum block size for blocked processing.
+                direction: the direction of the correction propagation.
+        """
         weight = self.layer.weight.data.clone()
         hessian = self.hessian.clone()
+
+        assert self.mask is not None, "prune() assumes that a mask has been set"
+
+        mask = self.mask
+
+        # Reverse the column order if the correction propagation direction is right-to-left
+        if direction == SparseGPTCorrectionDirection.RIGHT_TO_LEFT:
+            weight = weight.flip(dims=[1])
+            hessian = hessian.flip(dims=[0, 1])
+            mask = mask.flip(dims=[1])
 
         # Remove dead columns
         dead = torch.diag(hessian) == 0
@@ -74,7 +96,7 @@ class SparseGPTLayerWrapper(nn.Module):
             block_weight = weight[:, i:j].clone()
             block_masked_weight = torch.zeros_like(block_weight)
 
-            block_mask = self.mask[:, i:j].bool()
+            block_mask = mask[:, i:j].bool()
             block_errors = torch.zeros_like(block_weight)
             block_inverse_hessian = inverse_hessian[i:j, i:j]
 
@@ -100,6 +122,10 @@ class SparseGPTLayerWrapper(nn.Module):
             # Update the weights
             weight[:, i:j] = block_masked_weight
             weight[:, j:] -= block_errors.matmul(inverse_hessian[i:j, j:])
+
+        # Reverse the column order if the correction propagation direction is right-to-left
+        if direction == SparseGPTCorrectionDirection.RIGHT_TO_LEFT:
+            weight = weight.flip(dims=[1])
 
         self.layer.weight.data = weight
 

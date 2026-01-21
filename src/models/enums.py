@@ -48,3 +48,12 @@ class MLPLayerType(str, Enum):
     W1 = "w1"
     W2 = "w2"
     W3 = "w3"
+
+
+class SparseGPTCorrectionDirection(str, Enum):
+    """The propagation direction for the SparseGPT weight correction."""
+    # Standard: corrections propagate to the right
+    LEFT_TO_RIGHT = "left-to-right"
+
+    # Reversed: corrections propagate to the left
+    RIGHT_TO_LEFT = "right-to-left"

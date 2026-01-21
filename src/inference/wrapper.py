@@ -1,10 +1,14 @@
 import torch
+import logging
 import torch.nn as nn
 
-from typing import List, Callable
+from torch.utils.data import DataLoader
+from typing import List, Callable, Optional
 
-from src.models.enums import MLPArchitecture
+from src.models.enums import MLPArchitecture, SparseGPTCorrectionDirection
+from src.models.prunable.sparsegpt.layer_wrapper import SparseGPTLayerWrapper
 from src.inference.importance_scores import ElasticImportanceScores
+from src.utils.models import capture_block_inputs
 
 
 class ElasticViT(nn.Module):
@@ -151,14 +155,20 @@ class ElasticViT(nn.Module):
     def prune(
         self,
         mlp_pruning_ratio: float = 0.0,
-        head_pruning_ratio: float = 0.0
+        head_pruning_ratio: float = 0.0,
+        apply_correction: bool = False,
+        correction_data_loader: Optional[DataLoader] = None,
     ) -> "ElasticViT":
         """
-            Prune the model to target sparsity using global ranking.
+            Prune the model to the target sparsity using the global structure importance scores.
+
+            Optionally applies SparseGPT weight correction to fc2 and attn.proj layers.
 
             Args:
-                mlp_pruning_ratio: Fraction of MLP neurons to remove (0.0 to 1.0).
-                head_pruning_ratio: Fraction of attention heads to remove (0.0 to 1.0).
+                mlp_pruning_ratio: fraction of MLP neurons to remove (0.0 to 1.0).
+                head_pruning_ratio: fraction of attention heads to remove (0.0 to 1.0).
+                apply_correction: whether to apply SparseGPT-based weight correction.
+                correction_data_loader: the data loader to use for the SparseGPT weight correction.
 
             Returns:
                 self
@@ -188,6 +198,16 @@ class ElasticViT(nn.Module):
 
             if needs_reset:
                 self.reset()
+
+        # Apply correction on the permuted model before pruning.
+        if apply_correction:
+            assert correction_data_loader is not None, "correction_data_loader must be provided when apply_correction is True"
+
+            self._apply_correction(
+                mlp_keep_counts=mlp_keep_counts,
+                head_keep_counts=head_keep_counts,
+                data_loader=correction_data_loader
+            )
 
         # Zero out any gradients that would become misaligned after pruning.
         self.model.zero_grad()
@@ -317,6 +337,66 @@ class ElasticViT(nn.Module):
                 block.attn.num_heads,
                 self.scores.head_dim
             )[:, :keep_count, :].reshape(-1)
+
+    def _apply_correction(
+        self,
+        mlp_keep_counts: List[int],
+        head_keep_counts: List[int],
+        data_loader: DataLoader
+    ) -> None:
+        """
+            Apply SparseGPT-based weight correction to fc2 and attn.proj
+            layers (column pruning).
+        """
+        inputs = capture_block_inputs(
+            model=self.model,
+            data_loader=data_loader,
+            device=self.device,
+            block_index=0,
+            show_progress=True
+        )
+
+        for i in range(self.scores.num_blocks):
+            logging.info(f"pruning block {i} with weight correction...")
+
+            block = self.model.blocks[i]
+
+            # On permuted models the pruned columns are at indices >= keep_count
+            fc2_mask = torch.zeros_like(block.mlp.fc2.weight, dtype=torch.bool)
+            fc2_mask[:, mlp_keep_counts[i]:] = True
+
+            proj_mask = torch.zeros_like(block.attn.proj.weight, dtype=torch.bool)
+            proj_mask[:, head_keep_counts[i] * self.scores.head_dim:] = True
+
+            layers = {
+                "mlp.fc2": SparseGPTLayerWrapper(layer=block.mlp.fc2, mask=fc2_mask),
+                "attn.proj": SparseGPTLayerWrapper(layer=block.attn.proj, mask=proj_mask),
+            }
+
+            def build_hook(name: str):
+                def hook(_, inp, __):
+                    layers[name].update(inp[0])
+
+                return hook
+
+            handles = [
+                layer.layer.register_forward_hook(build_hook(name)) for name, layer in layers.items()
+            ]
+
+            outputs = []
+
+            with torch.no_grad():
+                for sample in inputs:
+                    outputs.append(block(sample.unsqueeze(0)))
+
+            for handle in handles:
+                handle.remove()
+
+            for layer in layers.values():
+                layer.prune(direction=SparseGPTCorrectionDirection.RIGHT_TO_LEFT)
+
+            if i < self.scores.num_blocks - 1:
+                inputs = torch.cat(outputs, dim=0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the wrapped model."""

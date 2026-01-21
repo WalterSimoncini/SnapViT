@@ -59,12 +59,38 @@ def main(args: argparse.Namespace):
         device=device
     )
 
+    # Create correction data loader if weight correction is enabled
+    correction_data_loader = None
+
+    if args.apply_correction:
+        logging.info(f"loading correction dataset: {args.correction_dataset}")
+        logging.info(f"using {args.correction_max_samples} samples for weight correction")
+
+        correction_dataset = load_dataset(
+            type_=args.correction_dataset,
+            split=DatasetSplit.TRAIN,
+            cache_dir=args.cache_dir,
+            transform=transform,
+            max_samples=args.correction_max_samples
+        )
+
+        correction_data_loader = DataLoader(
+            dataset=correction_dataset,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers
+        )
+
     # Prune to target sparsity
     logging.info(f"pruning to MLP sparsity {args.mlp_pruning_ratio}, head sparsity {args.head_pruning_ratio}")
 
+    if args.apply_correction:
+        logging.info("applying weight correction to fc2 and attn.proj layers")
+
     elastic.prune(
         mlp_pruning_ratio=args.mlp_pruning_ratio,
-        head_pruning_ratio=args.head_pruning_ratio
+        head_pruning_ratio=args.head_pruning_ratio,
+        apply_correction=args.apply_correction,
+        correction_data_loader=correction_data_loader
     )
 
     logging.info(f"pruned model has {count_parameters(elastic.model)} parameters")
@@ -148,6 +174,11 @@ if __name__ == "__main__":
     # Pruning configuration
     parser.add_argument("--mlp-pruning-ratio", type=float, default=0.0, help="The fraction of MLP neurons to prune")
     parser.add_argument("--head-pruning-ratio", type=float, default=0.0, help="The fraction of attention heads to prune")
+
+    # SparseGPT correction
+    parser.add_argument("--apply-correction", action=argparse.BooleanOptionalAction, help="Apply SparseGPT weight correction to fc2 and attn.proj layers")
+    parser.add_argument("--correction-dataset", type=DatasetType, choices=list(DatasetType), default=None, help="The dataset to use for weight correction")
+    parser.add_argument("--correction-max-samples", type=int, default=None, help="The maximum number of samples to use for weight correction. If larger than the dataset size, all samples are used.")
 
     # Evaluation
     parser.add_argument("--eval-datasets", type=DatasetType, nargs="+", choices=list(DatasetType), required=True, help="The datasets to use for evaluation, can specify multiple datasets")

@@ -154,3 +154,34 @@ def model_image_size(model: nn.Module) -> int:
         return model.image_size[0]
 
     return model.patch_embed.img_size[0]
+
+
+def capture_block_inputs(
+    model: nn.Module,
+    data_loader: DataLoader,
+    device: torch.device,
+    block_index: int = 0,
+    show_progress: bool = False
+) -> torch.Tensor:
+    """Capture input activations for a given transformer block."""
+    inputs = []
+
+    def hook(_, inp, __):
+        # Unpack nested tuples/lists (some models wrap inputs)
+        x = inp
+
+        while isinstance(x, (tuple, list)) and len(x) == 1:
+            x = x[0]
+
+        inputs.append(x.detach())
+
+    handle = model.blocks[block_index].register_forward_hook(hook)
+    loader = tqdm(data_loader, desc="capturing block inputs") if show_progress else data_loader
+
+    with torch.no_grad():
+        for images, _ in loader:
+            model(images.to(device))
+
+    handle.remove()
+
+    return torch.cat(inputs, dim=0)

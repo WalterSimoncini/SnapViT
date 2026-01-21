@@ -1,12 +1,11 @@
 import torch
 import logging
 
-from tqdm import tqdm
 from typing import Optional, Tuple
 from torch.utils.data import DataLoader
 
-from src.utils.models import block_num_heads
 from src.models.prunable.base import PrunableModel
+from src.utils.models import block_num_heads, capture_block_inputs
 
 from .layer_wrapper import SparseGPTLayerWrapper
 
@@ -54,7 +53,13 @@ class SparseGPTPrunableModel(PrunableModel):
         block_offset, head_offset = 0, 0
 
         # Capture the inputs for the first block
-        inputs = self.capture_model_inputs(data_loader=correction_data_loader)
+        inputs = capture_block_inputs(
+            model=self.model,
+            data_loader=correction_data_loader,
+            device=self.device,
+            block_index=0,
+            show_progress=True
+        )
 
         for i, (hidden_dim, num_heads) in enumerate(zip(hidden_dims, head_dims)):
             logging.info(f"pruning block {i} with weight correction...")
@@ -124,30 +129,6 @@ class SparseGPTPrunableModel(PrunableModel):
 
             # Update the block offsets
             block_offset, head_offset = block_offset + hidden_dim, head_offset + num_heads
-
-    def capture_model_inputs(self, data_loader: DataLoader) -> torch.Tensor:
-        """Captures the input tokens for the first block."""
-        inputs = []
-
-        def forward_hook(_, input, __):
-            # Unpack the input if it is a list-like. This is required as
-            # different models may have different nesting levels.
-            while type(input) in [tuple, list]:
-                assert len(input) == 1, "a list input must contain a single element"
-
-                input = input[0]
-
-            inputs.append(input.detach())
-
-        handle = self.model.blocks[0].register_forward_hook(forward_hook)
-
-        with torch.no_grad():
-            for images, _ in tqdm(data_loader, desc="collecting inputs"):
-                self.model(images.to(self.device))
-
-        handle.remove()
-
-        return torch.cat(inputs, dim=0)
 
     def compute_block_mlp_mask(self, block_index: int, pruning_weights: torch.Tensor):
         mlp = self.model.blocks[block_index].mlp
