@@ -70,6 +70,13 @@ def main(args: argparse.Namespace):
     logging.info(f"pruned model has {count_parameters(elastic.model)} parameters")
     logging.info(f"pruned model has {estimate_model_flops(model=elastic)} FLOPs")
 
+    # Disable the classification heads for feature extraction
+    if elastic.head is not None:
+        elastic.head.enabled = False
+
+    if elastic.head_dist is not None:
+        elastic.head_dist.enabled = False
+
     for dataset_type in args.eval_datasets:
         logging.info(f"evaluating on {dataset_type.value}...")
 

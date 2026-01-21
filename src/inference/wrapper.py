@@ -328,5 +328,21 @@ class ElasticViT(nn.Module):
 
     @property
     def blocks(self) -> List[nn.Module]:
-        """Access the model's transformer blocks."""
+        """Returns the model's transformer blocks."""
         return self.model.blocks
+
+    @property
+    def head(self):
+        """Returns the model's classification head."""
+        if hasattr(self.model, "head"):
+            return self.model.head
+
+        return None
+
+    @property
+    def head_dist(self):
+        """Returns the model's distillation head."""
+        if hasattr(self.model, "head_dist"):
+            return self.model.head_dist
+
+        return None
