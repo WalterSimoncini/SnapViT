@@ -1,7 +1,7 @@
 import torch
 import logging
 
-from typing import Optional, Tuple
+from typing import Optional
 from torch.utils.data import DataLoader
 
 from src.models.prunable.base import PrunableModel
@@ -66,21 +66,22 @@ class SparseGPTPrunableModel(PrunableModel):
 
             block = self.model.blocks[i]
 
-            fc1_mask, fc2_mask, fc1_bias_mask = self.compute_block_mlp_mask(
+            fc2_mask = self.compute_fc2_mask(
                 block_index=i,
                 pruning_weights=pruning_weights[block_offset:block_offset + hidden_dim]
             )
 
-            qkv_mask, qkv_bias_mask, qkv_bias_mask_mask, attn_proj_mask = self.compute_block_attn_mask(
+            attn_proj_mask = self.compute_attn_proj_mask(
                 block_index=i,
                 pruning_weights=head_pruning_weights[head_offset:head_offset + num_heads],
                 num_heads=num_heads
             )
 
+            # Only apply SparseGPT correction to column-pruned layers (fc2, attn.proj).
+            # Row-pruned layers (fc1, qkv) don't benefit from correction since corrections
+            # only propagate to their right, but the entire row is then discarded.
             layers = {
-                "attn.qkv": SparseGPTLayerWrapper(layer=block.attn.qkv, mask=qkv_mask, bias_mask=qkv_bias_mask, bias_mask_mask=qkv_bias_mask_mask),
                 "attn.proj": SparseGPTLayerWrapper(layer=block.attn.proj, mask=attn_proj_mask),
-                "mlp.fc1": SparseGPTLayerWrapper(layer=block.mlp.fc1, mask=fc1_mask, bias_mask=fc1_bias_mask),
                 "mlp.fc2": SparseGPTLayerWrapper(layer=block.mlp.fc2, mask=fc2_mask)
             }
 
@@ -130,76 +131,30 @@ class SparseGPTPrunableModel(PrunableModel):
             # Update the block offsets
             block_offset, head_offset = block_offset + hidden_dim, head_offset + num_heads
 
-    def compute_block_mlp_mask(self, block_index: int, pruning_weights: torch.Tensor):
-        mlp = self.model.blocks[block_index].mlp
-        pruning_weights = pruning_weights == 0
+    def compute_fc2_mask(self, block_index: int, pruning_weights: torch.Tensor) -> torch.Tensor:
+        """Compute column mask for fc2 based on pruning weights."""
+        fc2 = self.model.blocks[block_index].mlp.fc2
+        prune_indices = pruning_weights == 0
 
-        fc1_mask = torch.zeros_like(mlp.fc1.weight, dtype=torch.bool)
-        fc2_mask = torch.zeros_like(mlp.fc2.weight, dtype=torch.bool)
+        mask = torch.zeros_like(fc2.weight, dtype=torch.bool)
+        mask[:, prune_indices] = True
 
-        fc1_mask[pruning_weights, :] = True        
-        fc2_mask[:, pruning_weights] = True
+        return mask
 
-        return fc1_mask, fc2_mask, pruning_weights.clone()
-
-    def compute_block_attn_mask(
+    def compute_attn_proj_mask(
         self,
         block_index: int,
         pruning_weights: torch.Tensor,
         num_heads: int
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        attn = self.model.blocks[block_index].attn
-        pruning_weights = pruning_weights == 0
+    ) -> torch.Tensor:
+        """Compute column mask for attn.proj based on head pruning weights."""
+        proj = self.model.blocks[block_index].attn.proj
+        prune_indices = pruning_weights == 0
 
-        # Create masks for the QKV and attn projection weights
-        attn_proj_mask = torch.zeros_like(attn.proj.weight, dtype=torch.bool)
-        qkv_mask = torch.zeros_like(attn.qkv.weight, dtype=torch.bool)
-
-        for h in range(num_heads):
-            if pruning_weights[h]:
-                attn_proj_mask[:, h * self.head_dim:(h + 1) * self.head_dim] = True
-
-                # Prune the Q, K, V sub-matrices
-                qkv_mask[h * self.head_dim:(h + 1) * self.head_dim, :] = True
-                qkv_mask[(num_heads + h) * self.head_dim:(num_heads + h + 1) * self.head_dim, :] = True
-                qkv_mask[(2 * num_heads + h) * self.head_dim:(2 * num_heads + h + 1) * self.head_dim, :] = True
-
-        # Create masks for the QKV bias and bias mask
-        qkv_bias_mask = self.compute_block_qkv_bias_mask(
-            block_index=block_index,
-            pruning_weights=pruning_weights,
-            num_heads=num_heads,
-            bias_key="bias"
-        )
-
-        qkv_bias_mask_mask = self.compute_block_qkv_bias_mask(
-            block_index=block_index,
-            pruning_weights=pruning_weights,
-            num_heads=num_heads,
-            bias_key="bias_mask"
-        )
-
-        return qkv_mask, qkv_bias_mask, qkv_bias_mask_mask, attn_proj_mask
-
-    def compute_block_qkv_bias_mask(
-        self,
-        block_index: int,
-        pruning_weights: torch.Tensor,
-        num_heads: int,
-        bias_key: str
-    ) -> Optional[torch.Tensor]:
-        attn = self.model.blocks[block_index].attn
-        pruning_weights = pruning_weights == 0
-
-        if not hasattr(attn, bias_key):
-            return None
-
-        bias_mask = torch.zeros_like(getattr(attn, bias_key).bias, dtype=torch.bool)
+        mask = torch.zeros_like(proj.weight, dtype=torch.bool)
 
         for h in range(num_heads):
-            if pruning_weights[h]:
-                bias_mask[h * self.head_dim:(h + 1) * self.head_dim] = True
-                bias_mask[(num_heads + h) * self.head_dim:(num_heads + h + 1) * self.head_dim] = True
-                bias_mask[(2 * num_heads + h) * self.head_dim:(2 * num_heads + h + 1) * self.head_dim] = True
+            if prune_indices[h]:
+                mask[:, h * self.head_dim:(h + 1) * self.head_dim] = True
 
-        return bias_mask
+        return mask
