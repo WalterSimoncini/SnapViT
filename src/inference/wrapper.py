@@ -5,10 +5,10 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from typing import List, Callable, Optional
 
-from src.models.enums import MLPArchitecture, SparseGPTCorrectionDirection
-from src.models.prunable.sparsegpt.layer_wrapper import SparseGPTLayerWrapper
-from src.inference.importance_scores import ElasticImportanceScores
 from src.utils.models import capture_block_inputs
+from src.inference.importance_scores import ElasticImportanceScores
+from src.models.prunable.sparsegpt.layer_wrapper import SparseGPTLayerWrapper
+from src.models.enums import MLPArchitecture, SparseGPTCorrectionDirection, SparseGPTDampingStrategy
 
 
 class ElasticViT(nn.Module):
@@ -158,6 +158,8 @@ class ElasticViT(nn.Module):
         head_pruning_ratio: float = 0.0,
         apply_correction: bool = False,
         correction_data_loader: Optional[DataLoader] = None,
+        damping_percentage: float = 0.01,
+        damping_strategy: SparseGPTDampingStrategy = SparseGPTDampingStrategy.MEAN,
     ) -> "ElasticViT":
         """
             Prune the model to the target sparsity using the global structure importance scores.
@@ -169,6 +171,8 @@ class ElasticViT(nn.Module):
                 head_pruning_ratio: fraction of attention heads to remove (0.0 to 1.0).
                 apply_correction: whether to apply SparseGPT-based weight correction.
                 correction_data_loader: the data loader to use for the SparseGPT weight correction.
+                damping_percentage: damping percentage for the SparseGPT Hessian regularization.
+                damping_strategy: damping strategy for the SparseGPT Hessian regularization.
 
             Returns:
                 self
@@ -206,7 +210,9 @@ class ElasticViT(nn.Module):
             self._apply_correction(
                 mlp_keep_counts=mlp_keep_counts,
                 head_keep_counts=head_keep_counts,
-                data_loader=correction_data_loader
+                data_loader=correction_data_loader,
+                damping_percentage=damping_percentage,
+                damping_strategy=damping_strategy,
             )
 
         # Zero out any gradients that would become misaligned after pruning.
@@ -342,11 +348,20 @@ class ElasticViT(nn.Module):
         self,
         mlp_keep_counts: List[int],
         head_keep_counts: List[int],
-        data_loader: DataLoader
+        data_loader: DataLoader,
+        damping_percentage: float = 0.01,
+        damping_strategy: SparseGPTDampingStrategy = SparseGPTDampingStrategy.MEAN,
     ) -> None:
         """
             Apply SparseGPT-based weight correction to fc2 and attn.proj
             layers (column pruning).
+
+            Args:
+                mlp_keep_counts: number of MLP neurons to keep per block.
+                head_keep_counts: number of attention heads to keep per block.
+                data_loader: the data loader to use for capturing activations.
+                damping_percentage: damping percentage for the SparseGPT Hessian regularization.
+                damping_strategy: damping strategy for the SparseGPT Hessian regularization.
         """
         inputs = capture_block_inputs(
             model=self.model,
@@ -355,6 +370,16 @@ class ElasticViT(nn.Module):
             block_index=0,
             show_progress=True
         )
+
+        # Compute RoPE embeddings if the model uses them (e.g., DINOv3)
+        rope_sincos = None
+
+        if hasattr(self.model, "rope_embed") and self.model.rope_embed is not None:
+            H = W = self.model.patch_embed.img_size[0] // self.model.patch_embed.patch_size[0]
+
+            rope_sincos = self.model.rope_embed(H=H, W=W)
+
+            logging.info(f"using RoPE embeddings with H={H}, W={W}")
 
         for i in range(self.scores.num_blocks):
             logging.info(f"pruning block {i} with weight correction...")
@@ -369,8 +394,8 @@ class ElasticViT(nn.Module):
             proj_mask[:, head_keep_counts[i] * self.scores.head_dim:] = True
 
             layers = {
-                "mlp.fc2": SparseGPTLayerWrapper(layer=block.mlp.fc2, mask=fc2_mask),
-                "attn.proj": SparseGPTLayerWrapper(layer=block.attn.proj, mask=proj_mask),
+                "mlp.fc2": SparseGPTLayerWrapper(layer=block.mlp.fc2, mask=fc2_mask, damping_percentage=damping_percentage, damping_strategy=damping_strategy),
+                "attn.proj": SparseGPTLayerWrapper(layer=block.attn.proj, mask=proj_mask, damping_percentage=damping_percentage, damping_strategy=damping_strategy),
             }
 
             def build_hook(name: str):
@@ -387,7 +412,7 @@ class ElasticViT(nn.Module):
 
             with torch.no_grad():
                 for sample in inputs:
-                    outputs.append(block(sample.unsqueeze(0)))
+                    outputs.append(block(sample.unsqueeze(0), rope_sincos))
 
             for handle in handles:
                 handle.remove()

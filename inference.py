@@ -8,6 +8,7 @@ from src.models import load_model, ModelType
 from src.utils.models import extract_features
 from src.utils.models import count_parameters
 from src.utils.logging import configure_logging
+from src.models.enums import SparseGPTDampingStrategy
 from src.utils.performance import estimate_model_flops
 from src.inference import ElasticImportanceScores, ElasticViT
 from src.datasets import load_dataset, DatasetSplit, DatasetType
@@ -90,7 +91,9 @@ def main(args: argparse.Namespace):
         mlp_pruning_ratio=args.mlp_pruning_ratio,
         head_pruning_ratio=args.head_pruning_ratio,
         apply_correction=args.apply_correction,
-        correction_data_loader=correction_data_loader
+        correction_data_loader=correction_data_loader,
+        damping_percentage=args.correction_damping_percentage,
+        damping_strategy=args.correction_damping_strategy,
     )
 
     logging.info(f"pruned model has {count_parameters(elastic.model)} parameters")
@@ -179,6 +182,8 @@ if __name__ == "__main__":
     parser.add_argument("--apply-correction", action=argparse.BooleanOptionalAction, help="Apply SparseGPT weight correction to fc2 and attn.proj layers")
     parser.add_argument("--correction-dataset", type=DatasetType, choices=list(DatasetType), default=None, help="The dataset to use for weight correction")
     parser.add_argument("--correction-max-samples", type=int, default=None, help="The maximum number of samples to use for weight correction. If larger than the dataset size, all samples are used.")
+    parser.add_argument("--correction-damping-percentage", type=float, default=0.01, help="Damping percentage for SparseGPT weight correction")
+    parser.add_argument("--correction-damping-strategy", type=SparseGPTDampingStrategy, choices=list(SparseGPTDampingStrategy), default=SparseGPTDampingStrategy.MEAN, help="Damping strategy for SparseGPT weight correction")
 
     # Evaluation
     parser.add_argument("--eval-datasets", type=DatasetType, nargs="+", choices=list(DatasetType), required=True, help="The datasets to use for evaluation, can specify multiple datasets")
