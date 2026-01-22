@@ -106,7 +106,7 @@ python inference.py \
 > [!TIP]
 > We provide pre-computed importance scores in the `scores` directory for the following models: AugReg ViT-B/16, AugReg ViT-L/16, DeIT ViT-B/16, DeIT-3 ViT-S/16, DeIT-3 ViT-B/16, DeIT-3 ViT-L/16, DeIT-3 ViT-H/14, DINO ViT-B/16, DINOv3 ViT-B/16, and SigLIP2 ViT-B/16.
 
-The `scores/imagenet-1k` and `scores/merged` directories contains scores estimated using ImageNet-1k and the merged dataset, respectively.
+The `scores/imagenet-1k` and `scores/merged` directories contain scores estimated using the `ImageNet-1k` and `merged` datasets respectively.
 
 ### SparseGPT Weight Correction
 
