@@ -5,7 +5,8 @@ from typing import Optional
 from torch.utils.data import DataLoader
 
 from src.models.prunable.base import PrunableModel
-from src.utils.models import block_num_heads, capture_block_inputs
+from src.models.enums import SparseGPTDampingStrategy
+from src.utils.models import block_num_heads, capture_block_inputs, eval_mode
 
 from .layer_wrapper import SparseGPTLayerWrapper
 
@@ -20,6 +21,8 @@ class SparseGPTPrunableModel(PrunableModel):
         estimate_pruning_weights: bool = True,
         apply_correction: bool = False,
         correction_data_loader: Optional[DataLoader] = None,
+        damping_percentage: float = 0.01,
+        damping_strategy: SparseGPTDampingStrategy = SparseGPTDampingStrategy.MEAN,
         **kwargs
     ):
         # If no correction needs to be applied, prune the model as usual.
@@ -52,84 +55,95 @@ class SparseGPTPrunableModel(PrunableModel):
         # select its pruning weights and corresponding indices
         block_offset, head_offset = 0, 0
 
-        # Capture the inputs for the first block
-        inputs = capture_block_inputs(
-            model=self.model,
-            data_loader=correction_data_loader,
-            device=self.device,
-            block_index=0,
-            show_progress=True
-        )
-
-        for i, (hidden_dim, num_heads) in enumerate(zip(hidden_dims, head_dims)):
-            logging.info(f"pruning block {i} with weight correction...")
-
-            block = self.model.blocks[i]
-
-            fc2_mask = self.compute_fc2_mask(
-                block_index=i,
-                pruning_weights=pruning_weights[block_offset:block_offset + hidden_dim]
+        with eval_mode(self.model):
+            # Capture the inputs for the first block
+            inputs = capture_block_inputs(
+                model=self.model,
+                data_loader=correction_data_loader,
+                device=self.device,
+                block_index=0,
+                show_progress=True
             )
 
-            attn_proj_mask = self.compute_attn_proj_mask(
-                block_index=i,
-                pruning_weights=head_pruning_weights[head_offset:head_offset + num_heads],
-                num_heads=num_heads
-            )
+            # Compute RoPE embeddings if the model uses them (e.g., for DINOv3)
+            rope_sincos = None
 
-            # Only apply SparseGPT correction to column-pruned layers (fc2, attn.proj).
-            # Row-pruned layers (fc1, qkv) don't benefit from correction since corrections
-            # only propagate to their right, but the entire row is then discarded.
-            layers = {
-                "attn.proj": SparseGPTLayerWrapper(layer=block.attn.proj, mask=attn_proj_mask),
-                "mlp.fc2": SparseGPTLayerWrapper(layer=block.mlp.fc2, mask=fc2_mask)
-            }
+            if hasattr(self.model, "rope_embed") and self.model.rope_embed is not None:
+                H = W = self.model.patch_embed.img_size[0] // self.model.patch_embed.patch_size[0]
 
-            # Collect the input activations for every target layer in the block
-            def build_hook(name: str):
-                def forward_hook(_, input, __):
-                    layers[name].update(input[0])
+                rope_sincos = self.model.rope_embed(H=H, W=W)
 
-                return forward_hook
+                logging.info(f"SparseGPT: Using RoPE embeddings with H={H}, W={W}")
 
-            outputs = []
-            handles = [
-                layer.layer.register_forward_hook(build_hook(name)) for name, layer in layers.items()
-            ]
+            for i, (hidden_dim, num_heads) in enumerate(zip(hidden_dims, head_dims)):
+                logging.info(f"pruning block {i} with weight correction...")
 
-            with torch.no_grad():
-                for sample in inputs:
-                    block(sample.unsqueeze(dim=0))
+                block = self.model.blocks[i]
 
-            for handle in handles:
-                handle.remove()
+                fc2_mask = self.compute_fc2_mask(
+                    block_index=i,
+                    pruning_weights=pruning_weights[block_offset:block_offset + hidden_dim]
+                )
 
-            # Zero out the target weights and apply the weight correction
-            for layer in layers.values():
-                layer.prune()
+                attn_proj_mask = self.compute_attn_proj_mask(
+                    block_index=i,
+                    pruning_weights=head_pruning_weights[head_offset:head_offset + num_heads],
+                    num_heads=num_heads
+                )
 
-            # Prune the MLP block and heads as per usual
-            self.prune_block_mlp(
-                block_index=i,
-                pruning_weights=pruning_weights[block_offset:block_offset + hidden_dim],
-                hidden_dim=hidden_dim
-            )
+                # Only apply SparseGPT correction to column-pruned layers (fc2, attn.proj).
+                # Row-pruned layers (fc1, qkv) don't benefit from correction since corrections
+                # only propagate to their right, but the entire row is then discarded.
+                layers = {
+                    "attn.proj": SparseGPTLayerWrapper(layer=block.attn.proj, mask=attn_proj_mask, damping_percentage=damping_percentage, damping_strategy=damping_strategy),
+                    "mlp.fc2": SparseGPTLayerWrapper(layer=block.mlp.fc2, mask=fc2_mask, damping_percentage=damping_percentage, damping_strategy=damping_strategy)
+                }
 
-            self.prune_block_attn(
-                block_index=i,
-                pruning_weights=head_pruning_weights[head_offset:head_offset + num_heads],
-                num_heads=num_heads
-            )
+                # Collect the input activations for every target layer in the block
+                def build_hook(name: str):
+                    def forward_hook(_, input, __):
+                        layers[name].update(input[0])
 
-            # Collect the next inputs for the next block after pruning
-            with torch.no_grad():
-                for sample in inputs:
-                    outputs.append(block(sample.unsqueeze(dim=0)))
+                    return forward_hook
 
-            inputs = torch.cat(outputs, dim=0)
+                outputs = []
+                handles = [
+                    layer.layer.register_forward_hook(build_hook(name)) for name, layer in layers.items()
+                ]
 
-            # Update the block offsets
-            block_offset, head_offset = block_offset + hidden_dim, head_offset + num_heads
+                with torch.no_grad():
+                    for sample in inputs:
+                        block(sample.unsqueeze(dim=0), rope_sincos)
+
+                for handle in handles:
+                    handle.remove()
+
+                # Zero out the target weights and apply the weight correction
+                for layer in layers.values():
+                    layer.prune()
+
+                # Prune the MLP block and heads as per usual
+                self.prune_block_mlp(
+                    block_index=i,
+                    pruning_weights=pruning_weights[block_offset:block_offset + hidden_dim],
+                    hidden_dim=hidden_dim
+                )
+
+                self.prune_block_attn(
+                    block_index=i,
+                    pruning_weights=head_pruning_weights[head_offset:head_offset + num_heads],
+                    num_heads=num_heads
+                )
+
+                # Collect the next inputs for the next block after pruning
+                with torch.no_grad():
+                    for sample in inputs:
+                        outputs.append(block(sample.unsqueeze(dim=0), rope_sincos))
+
+                inputs = torch.cat(outputs, dim=0)
+
+                # Update the block offsets
+                block_offset, head_offset = block_offset + hidden_dim, head_offset + num_heads
 
     def compute_fc2_mask(self, block_index: int, pruning_weights: torch.Tensor) -> torch.Tensor:
         """Compute column mask for fc2 based on pruning weights."""

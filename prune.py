@@ -17,13 +17,13 @@ from src.models.enums import MLPLayerType
 from src.utils.models import deepcopy_model
 from src.models import load_model, ModelType
 from src.models.prunable import PrunableModel
-from src.models.enums import PrunableModelType
 from src.utils.eval import eval_model_datasets
 from src.inference import export_importance_scores
 from src.models.prunable import load_prunable_model
 from src.utils.performance import estimate_model_flops
 from src.utils.ga.fitness import build_fitness_function
 from src.utils.ga import GAOptimizerType, optimize_function_ga
+from src.models.enums import PrunableModelType, SparseGPTDampingStrategy
 from src.utils.logging import configure_logging, save_run_info, save_pruned_model
 from src.datasets import load_dataset, load_eval_datasets, DatasetSplit, DatasetType
 from src.utils.misc import get_device, seed_everything, default_cache_dir, pad_vector_to_match
@@ -387,7 +387,9 @@ def main(args: argparse.Namespace):
             block_weights=torch.tensor(block_weights).to(device),
             estimate_pruning_weights=False,
             apply_correction=True,
-            correction_data_loader=correction_data_loader
+            correction_data_loader=correction_data_loader,
+            damping_percentage=args.correction_damping_percentage,
+            damping_strategy=args.correction_damping_strategy,
         )
 
         # Save the model metrics
@@ -532,6 +534,8 @@ if __name__ == "__main__":
     parser.add_argument("--correction-dataset", type=DatasetType, choices=list(DatasetType), default=None, help="The dataset to use for weight correction")
     parser.add_argument("--correction-max-samples", type=int, default=None, help="The maximum number of samples to use for weight correction. If larger than the dataset size, all samples are used.")
     parser.add_argument("--correction-batch-size", type=int, default=16, help="The batch size to use for weight correction")
+    parser.add_argument("--correction-damping-percentage", type=float, default=0.01, help="Damping percentage for SparseGPT weight correction")
+    parser.add_argument("--correction-damping-strategy", type=SparseGPTDampingStrategy, choices=list(SparseGPTDampingStrategy), default=SparseGPTDampingStrategy.MEAN, help="Damping strategy for SparseGPT weight correction")
 
     configure_logging()
     main(parser.parse_args())

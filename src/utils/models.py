@@ -3,12 +3,28 @@ import torch
 import torch.nn as nn
 
 from tqdm import tqdm
-from typing import Tuple, List, Union
+from contextlib import contextmanager
 from torch.utils.data import DataLoader
 from torch.nn.functional import cross_entropy
 from timm.models.vision_transformer import Block
+from typing import Tuple, List, Union, Generator
 
 from src.models.enums import MLPLayerType
+
+
+@contextmanager
+def eval_mode(model: nn.Module) -> Generator[None, None, None]:
+    """
+        Temporarily set a model in eval mode, restoring
+        its original state on exit.
+    """
+    state = model.training
+    model.eval()
+
+    try:
+        yield
+    finally:
+        model.train(state)
 
 
 def predict(
@@ -167,10 +183,13 @@ def capture_block_inputs(
     inputs = []
 
     def hook(_, inp, __):
-        # Unpack nested tuples/lists (some models wrap inputs)
-        x = inp
+        # inp is a tuple of the forward function's positional arguments
+        # For standard ViT: inp = (tensor,)
+        # For DINOv3: inp = (list_of_tensors, rope_sincos)
+        x = inp[0]
 
-        while isinstance(x, (tuple, list)) and len(x) == 1:
+        # If x is a list of tensors (DINOv3), take the first one
+        if isinstance(x, (tuple, list)):
             x = x[0]
 
         inputs.append(x.detach())

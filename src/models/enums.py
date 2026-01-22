@@ -57,3 +57,17 @@ class SparseGPTCorrectionDirection(str, Enum):
 
     # Reversed: corrections propagate to the left
     RIGHT_TO_LEFT = "right-to-left"
+
+
+class SparseGPTDampingStrategy(str, Enum):
+    """The damping mode for SparseGPT Hessian regularization."""
+    # Mean-based, i.e., the original SparseGPT behavior
+    MEAN = "mean"
+
+    # Max-based, useful for models with extreme
+    # Hessian outliers such as DINOv3.
+    MAX = "max"
+
+    # Damping based on the 95th percentile of the
+    # Hessian diagonal. Robust to outliers.
+    PERCENTILE = "percentile"

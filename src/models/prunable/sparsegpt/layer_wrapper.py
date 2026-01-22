@@ -1,9 +1,10 @@
 import math
 import torch
+import logging
 import torch.nn as nn
 
 from typing import Optional
-from src.models.enums import SparseGPTCorrectionDirection
+from src.models.enums import SparseGPTCorrectionDirection, SparseGPTDampingStrategy
 
 
 class SparseGPTLayerWrapper(nn.Module):
@@ -14,6 +15,7 @@ class SparseGPTLayerWrapper(nn.Module):
         mask: Optional[torch.Tensor] = None,
         bias_mask: Optional[torch.Tensor] = None,
         bias_mask_mask: Optional[torch.Tensor] = None,
+        damping_strategy: SparseGPTDampingStrategy = SparseGPTDampingStrategy.MEAN,
     ):
         super().__init__()
 
@@ -21,6 +23,7 @@ class SparseGPTLayerWrapper(nn.Module):
         self.nsamples = 0
         self.device = layer.weight.device
         self.damping_percentage = damping_percentage
+        self.damping_strategy = damping_strategy
         self.nrows, self.ncolumns = layer.weight.shape
         self.hessian = torch.zeros((self.ncolumns, self.ncolumns), device=self.device)
 
@@ -77,8 +80,22 @@ class SparseGPTLayerWrapper(nn.Module):
         weight[:, dead] = 0
 
         # Add damping to the Hessian diagonal
-        damping = self.damping_percentage * torch.mean(torch.diag(hessian))
+        hessian_diag = torch.diag(hessian)
         diagonal = torch.arange(self.ncolumns, device=self.device)
+
+        if self.damping_strategy == SparseGPTDampingStrategy.PERCENTILE:
+            damping = self.damping_percentage * torch.quantile(hessian_diag, 0.95)
+        elif self.damping_strategy == SparseGPTDampingStrategy.MAX:
+            damping = self.damping_percentage * torch.max(hessian_diag)
+        elif self.damping_strategy == SparseGPTDampingStrategy.MEAN:
+            damping = self.damping_percentage * torch.mean(hessian_diag)
+        else:
+            raise ValueError(f"invalid damping strategy: {self.damping_strategy}")
+
+        logging.info(f"SparseGPT Hessian stats - diag mean: {hessian_diag.mean():.6f}, "
+                     f"diag std: {hessian_diag.std():.6f}, diag min: {hessian_diag.min():.6f}, "
+                     f"diag max: {hessian_diag.max():.6f}, damping: {damping:.6f}, "
+                     f"damping_strategy: {self.damping_strategy}")
 
         hessian[diagonal, diagonal] += damping
 
@@ -126,6 +143,12 @@ class SparseGPTLayerWrapper(nn.Module):
         # Reverse the column order if the correction propagation direction is right-to-left
         if direction == SparseGPTCorrectionDirection.RIGHT_TO_LEFT:
             weight = weight.flip(dims=[1])
+
+        # Log the magnitude of the weight delta.
+        weight_delta = (weight - self.layer.weight.data).abs()
+
+        logging.info(f"SparseGPT weight delta - mean: {weight_delta.mean():.6f}, "
+                     f"max: {weight_delta.max():.6f}, std: {weight_delta.std():.6f}")
 
         self.layer.weight.data = weight
 
