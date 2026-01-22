@@ -104,9 +104,9 @@ python inference.py \
 ```
 
 > [!TIP]
-> We provide pre-computed importance scores for popular models in the `scores/` directory.
+> We provide pre-computed importance scores for popular models in the `scores` directory.
 
-The `scores/imagenet-1k/` folder contains scores estimated using ImageNet-1k for the following models: AugReg ViT-B/16, AugReg ViT-L/16, DeIT ViT-B/16, DeIT-3 ViT-S/16, DeIT-3 ViT-B/16, DeIT-3 ViT-L/16, DeIT-3 ViT-H/14, DINO ViT-B/16, DINOv3 ViT-B/16, and SigLIP2 ViT-B/16.
+The `scores/imagenet-1k` directory contains scores estimated using ImageNet-1k for the following models: AugReg ViT-B/16, AugReg ViT-L/16, DeIT ViT-B/16, DeIT-3 ViT-S/16, DeIT-3 ViT-B/16, DeIT-3 ViT-L/16, DeIT-3 ViT-H/14, DINO ViT-B/16, DINOv3 ViT-B/16, and SigLIP2 ViT-B/16.
 
 ### SparseGPT Weight Correction
 
@@ -124,7 +124,7 @@ python inference.py \
     --eval-datasets imagenet-1k
 ```
 
-### DINOv3 Models
+#### DINOv3
 
 DINOv3 models have extreme Hessian outliers that require different damping settings for stable weight correction. Use `--correction-damping-strategy max` and `--correction-damping-percentage 0.1`:
 
