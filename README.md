@@ -90,6 +90,80 @@ The file containing encoded features is expected to have the following structure
 
 The `merge_train_valid` flag indicates whether the training and validation sets should be merged for the k-nearest neighbor and linear evaluation. The flag is true for datasets whose validation split was generated as an 80/20 split of the training set.
 
+## Inference
+
+Once you have generated importance scores via `prune.py` (with `--save-importance-scores`), you can use `inference.py` to perform elastic inference at any target sparsity:
+
+```bash
+python inference.py \
+    --model-type dino_vitb16 \
+    --importance-scores-path /path/to/importance-scores.pt \
+    --mlp-pruning-ratio 0.35 \
+    --head-pruning-ratio 0.2 \
+    --eval-datasets imagenet-1k cifar10
+```
+
+### SparseGPT Weight Correction
+
+For improved accuracy, you can enable SparseGPT-based weight correction on the `fc2` and `attn.proj` layers:
+
+```bash
+python inference.py \
+    --model-type dino_vitb16 \
+    --importance-scores-path /path/to/importance-scores.pt \
+    --mlp-pruning-ratio 0.35 \
+    --head-pruning-ratio 0.2 \
+    --apply-correction \
+    --correction-dataset imagenet-1k \
+    --correction-max-samples 1000 \
+    --eval-datasets imagenet-1k
+```
+
+### DINOv3 Models
+
+DINOv3 models have extreme Hessian outliers that require different damping settings for stable weight correction. Use `--correction-damping-strategy max` and `--correction-damping-percentage 0.1`:
+
+```bash
+python inference.py \
+    --model-type dinov3_vitb16 \
+    --importance-scores-path /path/to/importance-scores.pt \
+    --mlp-pruning-ratio 0.35 \
+    --head-pruning-ratio 0.2 \
+    --apply-correction \
+    --correction-dataset imagenet-1k \
+    --correction-max-samples 1000 \
+    --correction-damping-strategy max \
+    --correction-damping-percentage 0.1 \
+    --eval-datasets imagenet-1k
+```
+
+### Programmatic Usage
+
+You can also use the `ElasticViT` class directly in your own code for dynamic inference at different sparsities:
+
+```python
+from src.models import load_model, ModelType
+from src.inference import ElasticImportanceScores, ElasticViT
+
+# Load importance scores and create elastic model
+scores = ElasticImportanceScores.load("importance-scores.pt", device=device)
+elastic = ElasticViT(
+    model_factory=lambda: load_model(ModelType.DINO_VIT_B_16, cache_dir, device)[0],
+    scores=scores,
+    device=device
+)
+
+# Prune to target sparsity
+elastic.prune(mlp_pruning_ratio=0.35, head_pruning_ratio=0.2)
+output = elastic(images)
+
+# Prune further (no reset needed when pruning more aggressively)
+elastic.prune(mlp_pruning_ratio=0.5, head_pruning_ratio=0.4)
+
+# Prune to a shallower sparsity (reset is called automatically)
+elastic.prune(mlp_pruning_ratio=0.2, head_pruning_ratio=0.1)
+```
+
 ## Reference
 
 If you found our work useful please cite us as follows:
