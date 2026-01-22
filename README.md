@@ -92,7 +92,7 @@ The `merge_train_valid` flag indicates whether the training and validation sets 
 
 ## Inference
 
-Once you have generated importance scores via `prune.py` (with `--save-importance-scores`), you can use `inference.py` to perform elastic inference at any target sparsity:
+Once you have generated importance scores via `prune.py` (with `--save-importance-scores`), or downloaded the pre-computed ones, you can use `inference.py` to perform elastic inference at any target sparsity:
 
 ```bash
 python inference.py \
@@ -102,6 +102,10 @@ python inference.py \
     --head-pruning-ratio 0.2 \
     --eval-datasets imagenet-1k cifar10
 ```
+
+We provide pre-computed importance scores for popular models in the `scores/` directory.
+
+The `scores/imagenet-1k/` folder contains scores estimated using ImageNet-1k for the following models: AugReg ViT-B/16, AugReg ViT-L/16, DeIT ViT-B/16, DeIT-3 ViT-S/16, DeIT-3 ViT-B/16, DeIT-3 ViT-L/16, DeIT-3 ViT-H/14, DINO ViT-B/16, DINOv3 ViT-B/16, and SigLIP2 ViT-B/16.
 
 ### SparseGPT Weight Correction
 
