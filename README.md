@@ -169,6 +169,10 @@ elastic.prune(mlp_pruning_ratio=0.5, head_pruning_ratio=0.4)
 elastic.prune(mlp_pruning_ratio=0.2, head_pruning_ratio=0.1)
 ```
 
+## Results
+
+We provide benchmark results for pruned models at various sparsity levels in [`results/in1k.md`](results/in1k.md).
+
 ## Reference
 
 If you found our work useful please cite us as follows:
